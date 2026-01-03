@@ -35,26 +35,20 @@ export default function AdminAttendance() {
 
   const fetchAttendance = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('attendance')
-      .select(`
-        *,
-        profiles!attendance_user_id_fkey (
-          full_name,
-          employee_id
-        )
-      `)
-      .eq('date', dateFilter)
-      .order('check_in', { ascending: false });
-
-    if (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to fetch attendance records',
-        variant: 'destructive',
-      });
-    } else {
-      setRecords(data as unknown as AttendanceRecord[] || []);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = (sessionData as any)?.session?.access_token;
+      if (!accessToken) throw new Error('Missing access token');
+      const resp = await fetch(`/api/admin/attendance?date=${encodeURIComponent(dateFilter)}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!resp.ok) {
+        const errText = await resp.text();
+        throw new Error(errText || 'Failed to fetch attendance records');
+      }
+      const json = await resp.json();
+      setRecords(json.data || []);
+    } catch (err: any) {
+      console.error('Failed to fetch attendance', err);
+      toast({ title: 'Error', description: err?.message || 'Failed to fetch attendance records', variant: 'destructive' });
     }
     setLoading(false);
   };

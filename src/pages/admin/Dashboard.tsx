@@ -5,8 +5,10 @@ import { PageHeader } from '@/components/ui/page-header';
 import { StatCard } from '@/components/ui/stat-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { supabase } from '@/integrations/supabase/client';
-import { Users, Clock, Calendar, DollarSign, ArrowRight, AlertCircle } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { Users, Clock, Calendar, DollarSign, ArrowRight, AlertCircle, Plus, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
 
@@ -24,6 +26,7 @@ interface LeaveRequest {
 }
 
 export default function AdminDashboard() {
+  const { role, user } = useAuth();
   const [stats, setStats] = useState({
     totalEmployees: 0,
     presentToday: 0,
@@ -32,10 +35,15 @@ export default function AdminDashboard() {
   });
   const [pendingLeaves, setPendingLeaves] = useState<LeaveRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [roleWarning, setRoleWarning] = useState(false);
 
   useEffect(() => {
     fetchData();
-  }, []);
+    // Check if role is properly set
+    if (user && role !== 'admin') {
+      setRoleWarning(true);
+    }
+  }, [user, role]);
 
   const fetchData = async () => {
     const today = format(new Date(), 'yyyy-MM-dd');
@@ -100,6 +108,28 @@ export default function AdminDashboard() {
         title="Admin Dashboard"
         description={`Welcome back! Today is ${format(new Date(), 'EEEE, MMMM d, yyyy')}`}
       />
+
+      {/* Role Warning Alert */}
+      {roleWarning && (
+        <Alert variant="destructive" className="mb-6">
+          <Shield className="h-4 w-4" />
+          <AlertTitle>Admin Role Not Set</AlertTitle>
+          <AlertDescription>
+            Your account doesn't have admin role set in the database. You won't be able to access admin features.
+            <br />
+            <strong>To fix this:</strong>
+            <ol className="list-decimal list-inside mt-2 space-y-1">
+              <li>Go to Supabase Dashboard → Table Editor → profiles table</li>
+              <li>Find your user (by email: {user?.email})</li>
+              <li>Set the <code className="bg-muted px-1 rounded">role</code> column to <code className="bg-muted px-1 rounded">admin</code></li>
+              <li>Refresh this page and log out/in</li>
+            </ol>
+            <p className="mt-2 text-sm">
+              Or see <code className="bg-muted px-1 rounded">FIX_ADMIN_ROLE.md</code> for detailed instructions.
+            </p>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -196,42 +226,106 @@ export default function AdminDashboard() {
         </Link>
       </div>
 
-      {/* Pending Leave Requests */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="h-5 w-5 text-warning" />
-            <CardTitle className="text-lg">Pending Leave Requests</CardTitle>
-          </div>
-          <Link to="/admin/leave-approvals">
-            <Button variant="ghost" size="sm">
-              View All <ArrowRight size={16} className="ml-1" />
-            </Button>
-          </Link>
-        </CardHeader>
-        <CardContent>
-          {pendingLeaves.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">No pending leave requests</p>
-          ) : (
-            <div className="space-y-4">
-              {pendingLeaves.map((leave) => (
-                <div key={leave.id} className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
-                  <div>
-                    <p className="font-medium">{leave.profiles?.full_name || 'Unknown'}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {leave.profiles?.employee_id} • {leave.leave_type} leave
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {format(new Date(leave.start_date), 'MMM d')} - {format(new Date(leave.end_date), 'MMM d, yyyy')}
-                    </p>
-                  </div>
-                  <StatusBadge status="pending" />
-                </div>
-              ))}
+      {/* Leave Requests Management Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <Card className="border-2 border-warning/20">
+          <CardHeader className="flex flex-row items-center justify-between bg-warning/5">
+            <div className="flex items-center gap-2">
+              <Calendar className="h-5 w-5 text-warning" />
+              <CardTitle className="text-lg">Leave Requests Management</CardTitle>
             </div>
-          )}
-        </CardContent>
-      </Card>
+            <Link to="/admin/leave-approvals">
+              <Button variant="ghost" size="sm" className="text-warning hover:text-warning hover:bg-warning/10">
+                Manage All <ArrowRight size={16} className="ml-1" />
+              </Button>
+            </Link>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="mb-4">
+              <p className="text-sm text-muted-foreground mb-2">
+                Review and manage all employee leave requests. Approve or decline requests with comments.
+              </p>
+              <div className="flex items-center gap-4 text-sm">
+                <span className="font-medium text-warning">{stats.pendingLeaves} Pending</span>
+                <span className="text-muted-foreground">•</span>
+                <span className="text-muted-foreground">Accept or Decline</span>
+              </div>
+            </div>
+            {pendingLeaves.length === 0 ? (
+              <div className="text-center py-6">
+                <p className="text-muted-foreground mb-4">No pending leave requests</p>
+                <Link to="/admin/leave-approvals">
+                  <Button variant="outline" size="sm">View All Leaves</Button>
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {pendingLeaves.slice(0, 3).map((leave) => (
+                  <div key={leave.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors">
+                    <div className="flex-1">
+                      <p className="font-medium text-sm">{leave.profiles?.full_name || 'Unknown'}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {leave.profiles?.employee_id} • {leave.leave_type} • {format(new Date(leave.start_date), 'MMM d')} - {format(new Date(leave.end_date), 'MMM d')}
+                      </p>
+                    </div>
+                    <Link to="/admin/leave-approvals">
+                      <Button size="sm" variant="outline">Review</Button>
+                    </Link>
+                  </div>
+                ))}
+                {pendingLeaves.length > 3 && (
+                  <Link to="/admin/leave-approvals">
+                    <Button variant="ghost" size="sm" className="w-full">
+                      View {pendingLeaves.length - 3} more requests <ArrowRight size={14} className="ml-1" />
+                    </Button>
+                  </Link>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Payroll Management Section */}
+        <Card className="border-2 border-info/20">
+          <CardHeader className="flex flex-row items-center justify-between bg-info/5">
+            <div className="flex items-center gap-2">
+              <DollarSign className="h-5 w-5 text-info" />
+              <CardTitle className="text-lg">Payroll Management</CardTitle>
+            </div>
+            <Link to="/admin/payroll">
+              <Button variant="ghost" size="sm" className="text-info hover:text-info hover:bg-info/10">
+                Manage All <ArrowRight size={16} className="ml-1" />
+              </Button>
+            </Link>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="mb-4">
+              <p className="text-sm text-muted-foreground mb-2">
+                Add or edit payroll records for any employee. Manage salaries, allowances, and deductions.
+              </p>
+              <div className="flex items-center gap-4 text-sm">
+                <span className="font-medium text-info">${stats.totalPayroll.toLocaleString()}</span>
+                <span className="text-muted-foreground">•</span>
+                <span className="text-muted-foreground">This Month</span>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <Link to="/admin/payroll">
+                <Button className="w-full gradient-primary">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add New Payroll
+                </Button>
+              </Link>
+              <Link to="/admin/payroll">
+                <Button variant="outline" className="w-full">
+                  <DollarSign className="mr-2 h-4 w-4" />
+                  View All Payroll Records
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </DashboardLayout>
   );
 }

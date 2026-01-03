@@ -24,20 +24,9 @@ export default function Notifications() {
 
   useEffect(() => {
     if (!user) return;
+    // Realtime disabled; fetch notifications on mount and after actions
     fetchNotifications();
-
-    const channel = supabase
-      .channel('public:notifications')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications' }, (payload) => {
-        const newNote = payload.new as Notification;
-        // If admin, show all; else show only user's notifications
-        if (role === 'admin' || newNote.user_id === user?.id) {
-          setNotes((s) => [newNote, ...s]);
-        }
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
+    return () => {};
   }, [user]);
 
   const fetchNotifications = async () => {

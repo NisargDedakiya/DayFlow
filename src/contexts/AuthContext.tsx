@@ -48,12 +48,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const fetchUserRole = async (userId: string) => {
-    const { data, error } = await supabase.from('user_roles').select('role').eq('user_id', userId).maybeSingle();
-    if (error) {
-      console.error('Error fetching user role', error);
-      return null;
-    }
-    return data?.role as Role | null;
+    // Deprecated: user_roles table is no longer used. Read role from profiles.
+    const profile = await fetchProfile(userId);
+    return profile?.role ?? null;
   };
 
   useEffect(() => {
@@ -64,8 +61,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (session?.user) {
         fetchProfile(session.user.id).then((p) => {
           setIsFirstLogin(Boolean(p?.is_first_login));
+          setRole(p?.role ?? null);
         });
-        fetchUserRole(session.user.id).then((r) => setRole(r));
       } else {
         setRole(null);
         setIsFirstLogin(false);
@@ -83,9 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (session?.user) {
         fetchProfile(session.user.id).then((p) => {
           setIsFirstLogin(Boolean(p?.is_first_login));
-        });
-        fetchUserRole(session.user.id).then((r) => {
-          setRole(r);
+          setRole(p?.role ?? null);
           setLoading(false);
         });
       } else {
@@ -133,9 +128,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userId = data?.user?.id;
     let profile: Profile | null = null;
     if (userId) {
+      // Fetch profile and ensure we get the latest role
       profile = await fetchProfile(userId);
-      setRole(profile?.role ?? null);
+      
+      // If role is null or undefined, try to get it from the database directly
+      if (!profile?.role) {
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('role, is_first_login')
+          .eq('id', userId)
+          .maybeSingle();
+        
+        if (profileData) {
+          profile = { ...profile, role: profileData.role as Role, is_first_login: profileData.is_first_login } as Profile;
+        }
+      }
+      
+      // Set role in context
+      const finalRole = profile?.role ?? null;
+      setRole(finalRole);
       setIsFirstLogin(Boolean(profile?.is_first_login));
+      
+      console.log('SignIn - Role set:', { userId, role: finalRole, email, profile });
     }
 
     return { error: null, profile };

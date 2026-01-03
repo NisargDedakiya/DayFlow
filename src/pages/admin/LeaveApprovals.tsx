@@ -32,35 +32,75 @@ export default function AdminLeaveApprovals() {
   const [selectedLeave, setSelectedLeave] = useState<LeaveRequest | null>(null);
   const [comments, setComments] = useState('');
   const [processing, setProcessing] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
 
   useEffect(() => { fetchLeaves(); }, []);
 
   const fetchLeaves = async () => {
-    const { data } = await supabase.from('leave_requests').select(`*, profiles!leave_requests_user_id_fkey (full_name, employee_id)`).order('created_at', { ascending: false });
-    setLeaves(data as unknown as LeaveRequest[] || []);
-    setLoading(false);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = (sessionData as any)?.session?.access_token;
+      if (!accessToken) throw new Error('Missing access token');
+
+      const resp = await fetch('/api/admin/leaves', { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!resp.ok) {
+        let errorMessage = 'Failed to fetch leaves';
+        try {
+          const errData = await resp.json();
+          errorMessage = errData.error || errorMessage;
+        } catch {
+          errorMessage = await resp.text() || errorMessage;
+        }
+        throw new Error(errorMessage);
+      }
+      const body = await resp.json();
+      setLeaves(body.data as LeaveRequest[] || []);
+    } catch (err) {
+      console.error('Failed to fetch leaves', err);
+      setLeaves([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleAction = async (status: 'approved' | 'rejected') => {
     if (!selectedLeave || !user) return;
     setProcessing(true);
-    await supabase.from('leave_requests').update({ status, admin_comments: comments || null, reviewed_by: user.id }).eq('id', selectedLeave.id);
-    toast({ title: 'Success', description: `Leave request ${status}` });
-    setSelectedLeave(null);
-    setComments('');
-    fetchLeaves();
-    // Notify employee and insert audit log
     try {
-      await supabase.from('notifications').insert([{ user_id: selectedLeave.user_id, title: `Leave ${status}`, message: `Your leave request has been ${status}.`, read: false }]);
-    } catch (nErr) {
-      console.error('Failed to insert notification', nErr);
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = (sessionData as any)?.session?.access_token;
+      if (!accessToken) throw new Error('Missing access token');
+
+      const resp = await fetch('/api/admin/leave-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ leave_id: selectedLeave.id, action: status, admin_comment: comments }),
+      });
+
+      if (!resp.ok) {
+        let errorMessage = 'Leave action failed';
+        try {
+          const errData = await resp.json();
+          errorMessage = errData.error || errorMessage;
+        } catch {
+          const errText = await resp.text();
+          errorMessage = errText || errorMessage;
+        }
+        throw new Error(errorMessage);
+      }
+
+      const body = await resp.json();
+      toast({ title: 'Success', description: `Leave request ${status}` });
+      setSelectedLeave(null);
+      setComments('');
+      // server triggers real-time update; fetch is optional but keep UI current
+      fetchLeaves();
+    } catch (err: any) {
+      console.error('Leave action failed', err);
+      toast({ title: 'Error', description: err?.message || 'Failed to process leave action', variant: 'destructive' });
+    } finally {
+      setProcessing(false);
     }
-    try {
-      await supabase.from('audit_logs').insert([{ action: `leave_${status}`, performed_by: user.id, target_user_id: selectedLeave.user_id, details: { leave_id: selectedLeave.id, comments } }]);
-    } catch (aErr) {
-      console.error('Failed to insert audit log', aErr);
-    }
-    setProcessing(false);
   };
 
   if (loading) return <DashboardLayout><div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div></DashboardLayout>;
@@ -71,18 +111,50 @@ export default function AdminLeaveApprovals() {
       <Card>
         <CardHeader><CardTitle>All Leave Requests</CardTitle></CardHeader>
         <CardContent>
+          <div className="flex items-center gap-2 mb-4">
+            <button className={`px-3 py-1 rounded ${statusFilter === 'all' ? 'bg-primary text-white' : 'bg-muted/20'}`} onClick={() => setStatusFilter('all')}>All</button>
+            <button className={`px-3 py-1 rounded ${statusFilter === 'pending' ? 'bg-primary text-white' : 'bg-muted/20'}`} onClick={() => setStatusFilter('pending')}>Pending</button>
+            <button className={`px-3 py-1 rounded ${statusFilter === 'approved' ? 'bg-primary text-white' : 'bg-muted/20'}`} onClick={() => setStatusFilter('approved')}>Approved</button>
+            <button className={`px-3 py-1 rounded ${statusFilter === 'rejected' ? 'bg-primary text-white' : 'bg-muted/20'}`} onClick={() => setStatusFilter('rejected')}>Rejected</button>
+          </div>
           <Table>
-            <TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Type</TableHead><TableHead>Duration</TableHead><TableHead>Status</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Employee</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Duration</TableHead>
+                <TableHead>Reason</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
             <TableBody>
-              {leaves.map((leave) => (
-                <TableRow key={leave.id}>
-                  <TableCell><p className="font-medium">{leave.profiles?.full_name || '-'}</p><p className="text-xs text-muted-foreground">{leave.profiles?.employee_id}</p></TableCell>
-                  <TableCell className="capitalize">{leave.leave_type}</TableCell>
-                  <TableCell>{format(new Date(leave.start_date), 'MMM d')} - {format(new Date(leave.end_date), 'MMM d')}</TableCell>
-                  <TableCell><StatusBadge status={leave.status as any} /></TableCell>
-                  <TableCell>{leave.status === 'pending' && <Button size="sm" onClick={() => setSelectedLeave(leave)}>Review</Button>}</TableCell>
+              {leaves.filter(l => statusFilter === 'all' ? true : l.status === statusFilter).length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                    No leave requests found
+                  </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                leaves.filter(l => statusFilter === 'all' ? true : l.status === statusFilter).map((leave) => (
+                  <TableRow key={leave.id}>
+                    <TableCell><p className="font-medium">{leave.profiles?.full_name || '-'}</p><p className="text-xs text-muted-foreground">{leave.profiles?.employee_id}</p></TableCell>
+                    <TableCell className="capitalize">{leave.leave_type}</TableCell>
+                    <TableCell>{format(new Date(leave.start_date), 'MMM d')} - {format(new Date(leave.end_date), 'MMM d')}</TableCell>
+                    <TableCell className="max-w-[200px] truncate" title={leave.remarks || 'No reason provided'}>
+                      {leave.remarks || <span className="text-muted-foreground">-</span>}
+                    </TableCell>
+                    <TableCell><StatusBadge status={leave.status as any} /></TableCell>
+                    <TableCell>
+                      {leave.status === 'pending' ? (
+                        <Button size="sm" onClick={() => setSelectedLeave(leave)}>Review</Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Processed</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -51,20 +52,42 @@ export default function Login() {
       return;
     }
 
+    // Ensure we have the latest profile (use the currently authenticated user)
+    let finalProfile = profile;
+    const { data: currentUser } = await supabase.auth.getUser();
+    const userId = currentUser?.user?.id ?? profile?.id;
+    if (userId) {
+      const { data: updatedProfile } = await supabase
+        .from('profiles')
+        .select('role, is_first_login')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (updatedProfile) {
+        finalProfile = { ...(finalProfile ?? {}), id: userId, role: updatedProfile.role, is_first_login: updatedProfile.is_first_login };
+      }
+    }
+
     toast({
       title: 'Welcome back!',
       description: 'You have successfully logged in.',
     });
 
     // If this is first login, force password change
-    if (profile?.is_first_login) {
+    if (finalProfile?.is_first_login) {
       navigate('/change-password');
+      setLoading(false);
       return;
     }
 
-    setTimeout(() => {
-      navigate(profile?.role === 'admin' ? '/admin/dashboard' : '/employee/dashboard');
-    }, 300);
+    // Determine redirect based on role
+    const userRole = finalProfile?.role || 'employee';
+    const redirectPath = userRole === 'admin' ? '/admin/dashboard' : '/employee/dashboard';
+    
+    console.log('Login redirect:', { role: userRole, redirectPath, profile: finalProfile });
+    
+    navigate(redirectPath);
+    setLoading(false);
   };
 
   return (

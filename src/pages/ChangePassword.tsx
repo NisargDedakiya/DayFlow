@@ -56,11 +56,25 @@ export default function ChangePassword() {
       if (pError) {
         console.error('Failed to update profile is_first_login', pError);
       }
+      
+      // Re-fetch profile to get the latest role
+      const { data: updatedProfile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .maybeSingle();
+      
+      const userRole = updatedProfile?.role || role || 'employee';
+      
+      toast({ title: 'Password updated', description: 'You may now access your dashboard.' });
+      setLoading(false);
+      
+      console.log('ChangePassword redirect:', { role: userRole, userId });
+      navigate(userRole === 'admin' ? '/admin/dashboard' : '/employee/dashboard');
+    } else {
+      setLoading(false);
+      navigate('/login');
     }
-
-    toast({ title: 'Password updated', description: 'You may now access your dashboard.' });
-    setLoading(false);
-    navigate(role === 'admin' ? '/admin/dashboard' : '/employee/dashboard');
   };
 
   return (

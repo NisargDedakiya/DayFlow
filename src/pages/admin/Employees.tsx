@@ -6,7 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Search, Users } from 'lucide-react';
+import { Loader2, Search, Users, Shield, User } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { StatusBadge } from '@/components/ui/status-badge';
 import { format } from 'date-fns';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
@@ -19,6 +21,7 @@ interface Employee {
   department: string | null;
   designation: string | null;
   date_of_joining: string | null;
+  role?: 'admin' | 'employee';
 }
 
 export default function AdminEmployees() {
@@ -58,77 +61,130 @@ export default function AdminEmployees() {
     setLoading(false);
   };
 
+  const handleRoleUpdate = async (userId: string, newRole: 'admin' | 'employee') => {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = (sessionData as any)?.session?.access_token;
+      if (!accessToken) {
+        throw new Error('No access token available. Please re-login.');
+      }
+
+      const resp = await fetch('/api/admin/update-role', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ user_id: userId, role: newRole }),
+      });
+
+      if (!resp.ok) {
+        let errorMessage = 'Failed to update role';
+        try {
+          const errData = await resp.json();
+          errorMessage = errData.error || errorMessage;
+        } catch {
+          const errText = await resp.text();
+          errorMessage = errText || errorMessage;
+        }
+        throw new Error(errorMessage);
+      }
+
+      toast({
+        title: 'Success',
+        description: `Role updated to ${newRole}`,
+      });
+      fetchEmployees();
+    } catch (err: any) {
+      console.error('Update role failed', err);
+      toast({
+        title: 'Error',
+        description: err?.message || 'Failed to update role',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleCreateEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!employeeIdInput || !fullNameInput || !emailInput || !tempPassword) {
+    if (!employeeIdInput || !fullNameInput || !emailInput) {
       toast({ title: 'Validation', description: 'Please fill required fields', variant: 'destructive' });
       return;
     }
     setCreating(true);
 
-    // Create auth user via signUp (admin action)
-    const { data, error } = await supabase.auth.signUp({
-      email: emailInput,
-      password: tempPassword,
-      options: {
-        data: {
+    try {
+      // Use relative API path; Vite proxy forwards /api to the backend server in development
+      const apiPath = '/api/admin/add-employee';
+
+      // get current session's access token to authenticate the request
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = (sessionData as any)?.session?.access_token || '';
+      if (!accessToken) {
+        throw new Error('No access token available. Please re-login.');
+      }
+
+      const resp = await fetch(apiPath, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
           employee_id: employeeIdInput,
           full_name: fullNameInput,
-          role: 'employee',
-        },
-      },
-    });
+          email: emailInput,
+          department: departmentInput || null,
+          designation: designationInput || null,
+          salary: salaryInput || null,
+          // optional: allow admin to provide a temp password
+          password: tempPassword || undefined,
+        }),
+      });
 
-    if (error) {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      if (!resp.ok) {
+        const errText = await resp.text();
+        throw new Error(errText || 'Create employee request failed');
+      }
+
+      const body = await resp.json();
+      const userId = body.userId;
+      const returnedTemp = body.tempPassword;
+
+      if (userId) {
+        // Try to update profile meta (best-effort)
+        try {
+          await supabase.from('profiles').update({
+            department: departmentInput || null,
+            designation: designationInput || null,
+            salary: salaryInput || null,
+            is_first_login: true,
+          }).eq('id', userId);
+        } catch (pErr) {
+          console.error('Failed to update profile after server create:', pErr);
+        }
+
+        // Inform admin of temp password if returned
+        toast({ title: 'Employee created', description: returnedTemp ? `Temporary password: ${returnedTemp}` : 'Employee created', });
+
+        // clear form
+        setEmployeeIdInput('');
+        setFullNameInput('');
+        setEmailInput('');
+        setTempPassword('');
+        setDepartmentInput('');
+        setDesignationInput('');
+        setSalaryInput('');
+        fetchEmployees();
+      } else {
+        throw new Error('No user id returned from server');
+      }
+    } catch (err: any) {
+      console.error('Create employee failed', err);
+      toast({ title: 'Error', description: err?.message || 'Failed to create employee', variant: 'destructive' });
+    } finally {
       setCreating(false);
-      return;
     }
-
-    const userId = data?.user?.id;
-    if (userId) {
-      // Update profile fields that the DB trigger may have created on auth.user insert
-      const { error: pError } = await supabase.from('profiles').update({
-        department: departmentInput || null,
-        designation: designationInput || null,
-        salary: salaryInput || null,
-        // set is_first_login if column exists
-        is_first_login: true,
-      }).eq('id', userId);
-      if (pError) {
-        // If update fails (maybe columns don't exist), log but continue
-        console.error('Failed to update profile after signup:', pError);
-      }
-
-      // Insert notification for the new user (best-effort)
-      try {
-        await supabase.from('notifications').insert([{ user_id: userId, title: 'Welcome to DayFlow', message: 'Your account has been created. Please change your password on first login.', read: false }]);
-      } catch (nErr) {
-        console.error('Notification insert failed', nErr);
-      }
-
-      // Insert audit log (best-effort)
-      try {
-        await supabase.from('audit_logs').insert([{ action: 'create_employee', performed_by: user?.id || null, target_user_id: userId, details: { employee_id: employeeIdInput, full_name: fullNameInput, email: emailInput } }]);
-      } catch (aErr) {
-        console.error('Audit log insert failed', aErr);
-      }
-
-      toast({ title: 'Employee created', description: 'An email with temporary password was sent' });
-      // clear form
-      setEmployeeIdInput('');
-      setFullNameInput('');
-      setEmailInput('');
-      setTempPassword('');
-      setDepartmentInput('');
-      setDesignationInput('');
-      setSalaryInput('');
-      fetchEmployees();
-    } else {
-      toast({ title: 'Error', description: 'Failed to create user', variant: 'destructive' });
-    }
-
-    setCreating(false);
   };
 
   const filteredEmployees = employees.filter((emp) => {
@@ -216,6 +272,7 @@ export default function AdminEmployees() {
                 <TableHead>Employee ID</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Email</TableHead>
+                <TableHead>Role</TableHead>
                 <TableHead>Department</TableHead>
                 <TableHead>Designation</TableHead>
                 <TableHead>Joined</TableHead>
@@ -224,7 +281,7 @@ export default function AdminEmployees() {
             <TableBody>
               {filteredEmployees.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center text-muted-foreground">
                     No employees found
                   </TableCell>
                 </TableRow>
@@ -234,6 +291,30 @@ export default function AdminEmployees() {
                     <TableCell className="font-medium">{emp.employee_id}</TableCell>
                     <TableCell>{emp.full_name || '-'}</TableCell>
                     <TableCell>{emp.email}</TableCell>
+                    <TableCell>
+                      <Select
+                        value={emp.role || 'employee'}
+                        onValueChange={(value: 'admin' | 'employee') => handleRoleUpdate(emp.id, value)}
+                      >
+                        <SelectTrigger className="w-32">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="employee">
+                            <div className="flex items-center gap-2">
+                              <User className="h-4 w-4" />
+                              Employee
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="admin">
+                            <div className="flex items-center gap-2">
+                              <Shield className="h-4 w-4" />
+                              Admin
+                            </div>
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
                     <TableCell>{emp.department || '-'}</TableCell>
                     <TableCell>{emp.designation || '-'}</TableCell>
                     <TableCell>

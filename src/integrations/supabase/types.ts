@@ -46,39 +46,39 @@ export type Database = {
       }
       leave_requests: {
         Row: {
-          admin_comments: string | null
+          admin_comment: string | null
           created_at: string | null
           end_date: string
           id: string
           leave_type: string
           remarks: string | null
-          reviewed_by: string | null
+          approved_by: string | null
           start_date: string
           status: string | null
           updated_at: string | null
           user_id: string
         }
         Insert: {
-          admin_comments?: string | null
+          admin_comment?: string | null
           created_at?: string | null
           end_date: string
           id?: string
           leave_type: string
           remarks?: string | null
-          reviewed_by?: string | null
+          approved_by?: string | null
           start_date: string
           status?: string | null
           updated_at?: string | null
           user_id: string
         }
         Update: {
-          admin_comments?: string | null
+          admin_comment?: string | null
           created_at?: string | null
           end_date?: string
           id?: string
           leave_type?: string
           remarks?: string | null
-          reviewed_by?: string | null
+          approved_by?: string | null
           start_date?: string
           status?: string | null
           updated_at?: string | null
@@ -95,6 +95,7 @@ export type Database = {
           id: string
           month: number
           net_salary: number | null
+          bonus_amount: number | null
           payment_status: string | null
           updated_at: string | null
           user_id: string
@@ -107,6 +108,7 @@ export type Database = {
           deductions?: number | null
           id?: string
           month: number
+          bonus_amount?: number | null
           net_salary?: number | null
           payment_status?: string | null
           updated_at?: string | null
@@ -120,6 +122,7 @@ export type Database = {
           deductions?: number | null
           id?: string
           month?: number
+          bonus_amount?: number | null
           net_salary?: number | null
           payment_status?: string | null
           updated_at?: string | null
@@ -138,6 +141,8 @@ export type Database = {
           email: string
           employee_id: string
           full_name: string | null
+          role: Database["public"]["Enums"]["app_role"]
+          is_first_login: boolean | null
           id: string
           phone: string | null
           profile_image: string | null
@@ -152,6 +157,8 @@ export type Database = {
           email: string
           employee_id: string
           full_name?: string | null
+          role?: Database["public"]["Enums"]["app_role"]
+          is_first_login?: boolean | null
           id: string
           phone?: string | null
           profile_image?: string | null
@@ -166,6 +173,8 @@ export type Database = {
           email?: string
           employee_id?: string
           full_name?: string | null
+          role?: Database["public"]["Enums"]["app_role"]
+          is_first_login?: boolean | null
           id?: string
           phone?: string | null
           profile_image?: string | null

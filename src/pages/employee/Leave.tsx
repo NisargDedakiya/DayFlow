@@ -24,6 +24,7 @@ interface LeaveRequest {
   remarks: string | null;
   status: string;
   admin_comments: string | null;
+  admin_comment?: string | null;
   created_at: string;
 }
 
@@ -286,8 +287,8 @@ export default function EmployeeLeave() {
                     <TableCell>
                       <StatusBadge status={leave.status as any} />
                     </TableCell>
-                    <TableCell className="max-w-[200px] truncate">
-                      {leave.admin_comments || '-'}
+                      <TableCell className="max-w-[200px] truncate">
+                        { (leave as any).admin_comment ?? (leave as any).admin_comments ?? '-' }
                     </TableCell>
                   </TableRow>
                 ))

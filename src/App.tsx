@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { Loader2 } from "lucide-react";
 
 // Pages
 import Login from "./pages/Login";
@@ -28,10 +29,28 @@ const queryClient = new QueryClient();
 
 function RootRedirect() {
   const { user, role, loading, isFirstLogin } = useAuth();
-  if (loading) return null;
+  
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+  
   if (!user) return <Navigate to="/login" replace />;
   if (isFirstLogin) return <Navigate to="/change-password" replace />;
-  return <Navigate to={role === 'admin' ? '/admin/dashboard' : '/employee/dashboard'} replace />;
+  
+  // Ensure we have a role before redirecting
+  // If role is null, default to employee dashboard (ProtectedRoute will handle redirect)
+  const redirectPath = role === 'admin' ? '/admin/dashboard' : '/employee/dashboard';
+  
+  console.log('RootRedirect:', { role, redirectPath, user: user?.email });
+  
+  return <Navigate to={redirectPath} replace />;
 }
 
 const App = () => (

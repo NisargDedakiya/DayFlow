@@ -21,15 +21,9 @@ export default function AuditLogs() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
 
   useEffect(() => {
+    // Realtime disabled; fetch logs on mount
     fetchLogs();
-    const channel = supabase
-      .channel('public:audit_logs')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'audit_logs' }, (payload) => {
-        setLogs((s) => [payload.new as AuditLog, ...s]);
-      })
-      .subscribe();
-
-    return () => supabase.removeChannel(channel);
+    return () => {};
   }, []);
 
   const fetchLogs = async () => {
